@@ -1,24 +1,7 @@
 require File.expand_path('lib/combiner',File.dirname(__FILE__))
+require File.expand_path('lib/txt_handler',File.dirname(__FILE__))
 require File.expand_path('lib/core_extends/string',File.dirname(__FILE__))
 require File.expand_path('lib/core_extends/float',File.dirname(__FILE__))
-require 'csv'
-require 'date'
-
-def latest(name)
-  files = Dir["#{ ENV["HOME"] }/workspace/*#{name}*.txt"]
-
-  files.sort_by! do |file|
-    last_date = /\d+-\d+-\d+_[[:alpha:]]+\.txt$/.match file
-    last_date = last_date.to_s.match /\d+-\d+-\d+/
-
-    date = DateTime.parse(last_date.to_s)
-    date
-  end
-
-  throw RuntimeError if files.empty?
-
-  files.last
-end
 
 class Modifier
 
@@ -27,18 +10,16 @@ class Modifier
   LAST_REAL_VALUE_WINS = ['Last Avg CPC', 'Last Avg Pos']
   INT_VALUES = ['Clicks', 'Impressions', 'ACCOUNT - Clicks', 'CAMPAIGN - Clicks', 'BRAND - Clicks', 'BRAND+CATEGORY - Clicks', 'ADGROUP - Clicks', 'KEYWORD - Clicks']
   FLOAT_VALUES = ['Avg CPC', 'CTR', 'Est EPC', 'newBid', 'Costs', 'Avg Pos']
-
-  LINES_PER_FILE = 120000
+  NUMBER_OF_COMMISSIONS = ['number of commissions']
+  COMMISSIONS_FIELDS = ['Commission Value', 'ACCOUNT - Commission Value', 'CAMPAIGN - Commission Value', 'BRAND - Commission Value', 'BRAND+CATEGORY - Commission Value', 'ADGROUP - Commission Value', 'KEYWORD - Commission Value']
 
   def initialize(saleamount_factor, cancellation_factor)
     @saleamount_factor = saleamount_factor
     @cancellation_factor = cancellation_factor
   end
 
-  def modify(output, input)
-    input = sort(input)
-
-    input_enumerator = lazy_read(input)
+  def modify(performance_data)
+    input_enumerator = performance_data.save_sorted_by('Clicks').lazy_read
 
     combiner = Combiner.new do |value|
       value[KEYWORD_UNIQUE_ID]
@@ -56,35 +37,11 @@ class Modifier
       end
     end
 
-    done = false
-    file_index = 0
-    file_name = output.gsub('.txt', '')
-    while not done do
-      CSV.open(file_name + "_#{file_index}.txt", "wb", { :col_sep => "\t", :headers => :first_row, :row_sep => "\r\n" }) do |csv|
-        headers_written = false
-        line_count = 0
-        while line_count < LINES_PER_FILE
-          begin
-            merged = merger.next
-            if not headers_written
-              csv << merged.keys
-              headers_written = true
-              line_count +=1
-            end
-            csv << merged
-            line_count +=1
-          rescue StopIteration
-            done = true
-            break
-          end
-        end
-        file_index += 1
-      end
-    end
+    performance_data.write(merger)
+
   end
 
   private
-
   def combine(merged)
     result = []
     merged.each do |_, hash|
@@ -106,10 +63,10 @@ class Modifier
     FLOAT_VALUES.each do |key|
       hash[key] = hash[key][0].from_german_to_f.to_german_s
     end
-    ['number of commissions'].each do |key|
+    NUMBER_OF_COMMISSIONS.each do |key|
       hash[key] = (@cancellation_factor * hash[key][0].from_german_to_f).to_german_s
     end
-    ['Commission Value', 'ACCOUNT - Commission Value', 'CAMPAIGN - Commission Value', 'BRAND - Commission Value', 'BRAND+CATEGORY - Commission Value', 'ADGROUP - Commission Value', 'KEYWORD - Commission Value'].each do |key|
+    COMMISSIONS_FIELDS.each do |key|
       hash[key] = (@cancellation_factor * @saleamount_factor * hash[key][0].from_german_to_f).to_german_s
     end
     hash
@@ -133,45 +90,12 @@ class Modifier
     result
   end
 
-  DEFAULT_CSV_OPTIONS = { :col_sep => "\t", :headers => :first_row }
-
-  def parse(file)
-    CSV.read(file, DEFAULT_CSV_OPTIONS)
-  end
-
-  def lazy_read(file)
-    Enumerator.new do |yielder|
-      CSV.foreach(file, DEFAULT_CSV_OPTIONS) do |row|
-        yielder.yield(row)
-      end
-    end
-  end
-
-  def write(content, headers, output)
-    CSV.open(output, "wb", { :col_sep => "\t", :headers => :first_row, :row_sep => "\r\n" }) do |csv|
-      csv << headers
-      content.each do |row|
-        csv << row
-      end
-    end
-  end
-
-  public
-  def sort(file)
-    output = "#{file}.sorted"
-    content_as_table = parse(file)
-    headers = content_as_table.headers
-    index_of_key = headers.index('Clicks')
-    content = content_as_table.sort_by { |a| -a[index_of_key].to_i }
-    write(content, headers, output)
-    return output
-  end
 end
 
-modified = input = latest('project_2012-07-27_2012-10-10_performancedata')
+performance_data = TxtHandler.new('project_2012-07-27_2012-10-10_performancedata')
 modification_factor = 1
 cancellaction_factor = 0.4
 modifier = Modifier.new(modification_factor, cancellaction_factor)
-modifier.modify(modified, input)
+modifier.modify(performance_data)
 
 puts "DONE modifying"
