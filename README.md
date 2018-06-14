@@ -1,1 +1,3 @@
 # crealytics-modifier
+
+Modifier.rb opens the most recent file based on the date contained in the file name, then writes a new file with the rows sorted in decreasing order based on the clicks column. Finally it processes the sorted file trying to combine the list based on a Keyword Unique ID field and applies a multiplication factor (values received as parameters) in some fields of commission (it seems to be some business rule related to commissioning) and generates output files with index in the name of up to 120000 (LINES_PER_FILE) lines each.
